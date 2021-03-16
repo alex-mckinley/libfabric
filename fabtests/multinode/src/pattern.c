@@ -76,15 +76,17 @@ static int ring_next(int *cur)
 		*cur = pm_job.num_ranks - 1;
 	else 			
 		*cur = pm_job.my_rank - 1;
+	
 	return 0; 
 }
 
 static int ring_current(int *cur)
 {
-	if ((pm_job.my_rank + 1) % pm_job.num_ranks == *cur) 
+	if (((pm_job.my_rank + 1) % pm_job.num_ranks) == *cur) 
 		return -FI_ENODATA;
 	
 	*cur = (pm_job.my_rank + 1) % pm_job.num_ranks;
+	//printf("current: %i\n", *cur);
 	return 0; 
 	
 }
@@ -94,9 +96,13 @@ static int mesh_next(int *cur)
 	int next = *cur + 1;
 
 	if (next >= pm_job.num_ranks)
+		next = 0;
+
+	if (next == pm_job.my_rank)
 		return -FI_ENODATA;
 
 	*cur = next;
+	//printf("cur: %i\n", *cur);
 	return 0;
 }
 

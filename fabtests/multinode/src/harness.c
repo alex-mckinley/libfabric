@@ -48,8 +48,10 @@ struct pm_job_info pm_job;
 static int parse_caps(char* caps)
 {
 	if (strcmp(caps, "msg") == 0) {
+		printf("using msg\n");
 		return multi_msg;
 	} else if (strcmp(caps, "rma") == 0) {
+		printf("using rma\n");
 		return multi_rma;
 	} else {
 		printf("Warn: Invalid capability, defaulting to msg\n");
@@ -285,7 +287,7 @@ int main(int argc, char **argv)
 	int c, ret;
 
 	opts = INIT_OPTS;
-	opts.options |= FT_OPT_SIZE;
+	opts.options |= FT_OPT_SIZE | FT_OPT_ALLOC_MULT_MR;
 
 	pm_job.clients = NULL;
 

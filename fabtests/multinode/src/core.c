@@ -89,7 +89,7 @@ static int multi_setup_fabric(int argc, char **argv)
 	hints->domain_attr->mr_mode = opts.mr_mode;
 
 	if (pm_job.transfer_method == multi_msg) {
-		hints->caps = FI_MSG;
+		hints->caps = FI_MSG;// | FI_TAGGED;
 	} else if (pm_job.transfer_method == multi_rma) {
 		hints->caps = FI_MSG | FI_RMA;
 	} else {
@@ -221,7 +221,7 @@ static int ft_progress(struct fid_cq *cq, uint64_t total, uint64_t *cq_cntr)
 
 int multi_msg_recv()
 {
-	int ret, offset;
+	int ret;
 
 	/* post receives */
 	while (!state.all_recvs_posted && state.rx_window) {
@@ -234,17 +234,17 @@ int multi_msg_recv()
 			return ret;
 		}
 
-		offset = state.recvs_posted % opts.window_size ;
-		assert(rx_ctx_arr[offset].state == OP_DONE);
+		//offset = state.recvs_posted % opts.window_size ;
+		assert(rx_ctx_arr[state.cur_source].state == OP_DONE);
 
 		ret = ft_post_rx_buf(ep, opts.transfer_size,
-				     &rx_ctx_arr[offset].context,
-				     rx_ctx_arr[offset].buf,
-				     rx_ctx_arr[offset].desc, 0);
+				     &rx_ctx_arr[state.cur_source].context,
+				     rx_ctx_arr[state.cur_source].buf,
+				     rx_ctx_arr[state.cur_source].desc, state.cur_source);
 		if (ret)
 			return ret;
 
-		rx_ctx_arr[offset].state = OP_PENDING;
+		rx_ctx_arr[state.cur_source].state = OP_PENDING;
 		state.recvs_posted++;
 		state.rx_window--;
 	}
@@ -253,7 +253,7 @@ int multi_msg_recv()
 
 int multi_msg_send()
 {
-	int ret, offset;
+	int ret;
 	fi_addr_t dest;
 
 	while (!state.all_sends_posted && state.tx_window) {
@@ -265,20 +265,27 @@ int multi_msg_send()
 		} else if (ret < 0) {
 			return ret;
 		}
+		
+		//offset = state.sends_posted % opts.window_size;
+		assert(tx_ctx_arr[state.cur_target].state == OP_DONE);
 
-		offset = state.sends_posted % opts.window_size;
-		assert(tx_ctx_arr[offset].state == OP_DONE);
+//		tx_ctx_arr[offset].buf[0] = offset;
+		snprintf((char*) tx_ctx_arr[state.cur_target].buf, tx_size,
+	        "Hello World! from %zu to %i on the %zuth iteration, %s test",
+	        pm_job.my_rank, state.cur_target, 
+	        (size_t) tx_seq, pattern->name);
+
 
 		dest = pm_job.fi_addrs[state.cur_target];
 		ret = ft_post_tx_buf(ep, dest, opts.transfer_size,
 				     NO_CQ_DATA,
-				     &tx_ctx_arr[offset].context,
-				     tx_ctx_arr[offset].buf,
-				     tx_ctx_arr[offset].desc, 0);
+				     &tx_ctx_arr[state.cur_target].context,
+				     tx_ctx_arr[state.cur_target].buf,
+				     tx_ctx_arr[state.cur_target].desc, pm_job.my_rank);
 		if (ret)
 			return ret;
 
-		tx_ctx_arr[offset].state = OP_PENDING;
+		tx_ctx_arr[state.cur_target].state = OP_PENDING;
 		state.sends_posted++;
 		state.tx_window--;
 	}
@@ -307,6 +314,11 @@ int multi_msg_wait()
 
 	if (state.all_recvs_posted && state.all_sends_posted)
 		state.all_completions_done = true;
+	
+	printf("\trecieved data: \n");
+	for (i = 0; i < pm_job.num_ranks; i++) {
+		printf("\t\t%i: %s\n", i, rx_ctx_arr[i].buf);
+	}
 
 	return 0;
 }
@@ -368,7 +380,7 @@ int multi_rma_recv()
 
 int multi_rma_wait()
 {
-	int ret;
+	int ret, i;
 
 	ret = ft_get_tx_comp(tx_seq);
 	if (ret)
@@ -380,6 +392,10 @@ int multi_rma_wait()
 	if (state.all_recvs_posted && state.all_sends_posted)
 		state.all_completions_done = true;
 
+	for (i = 0; i < pm_job.num_ranks; i++) {
+		printf("\t%s\n", (rx_buf + i * rx_size));
+	}
+	
 	return 0;
 }
 
@@ -387,11 +403,13 @@ int send_recv_barrier(int sync)
 {
 	int ret, i;
 
+	sync = sync + pm_job.num_ranks;
+
 	for(i = 0; i < pm_job.num_ranks; i++) {
 
-		ret = ft_post_rx_buf(ep, opts.transfer_size,
+		ret = ft_post_rx_buf(ep, FT_MAX_CTRL_MSG,
 			     &barrier_rx_ctx[i],
-			     rx_buf, mr_desc, 0);
+			     rx_buf, mr_desc, sync);
 		if (ret)
 			return ret;
 	}
@@ -399,7 +417,7 @@ int send_recv_barrier(int sync)
 	for (i = 0; i < pm_job.num_ranks; i++) {
 		ret = ft_post_tx_buf(ep, pm_job.fi_addrs[i], 0,
 				     NO_CQ_DATA, &barrier_tx_ctx[i],
-		                     tx_buf, mr_desc, 0);
+		                     tx_buf, mr_desc, sync);
 		if (ret)
 			return ret;
 	}
@@ -415,9 +433,12 @@ int send_recv_barrier(int sync)
 
 static inline void multi_init_state()
 {
+
 	state.cur_source = PATTERN_NO_CURRENT;
 	state.cur_target = PATTERN_NO_CURRENT;
 
+	state.start_recvs = state.recvs_posted;
+	state.start_sends = state.sends_posted;
 	state.all_completions_done = false;
 	state.all_recvs_posted = false;
 	state.all_sends_posted = false;
@@ -434,6 +455,12 @@ static int multi_run_test()
 	for (iter = 0; iter < opts.iterations; iter++) {
 
 		multi_init_state();
+		printf("iter: %i\n", iter);
+		if (strcmp(pattern->name, "full_mesh") == 0) {
+			state.cur_source = pm_job.my_rank;
+			state.cur_target = pm_job.my_rank;
+		}
+
 		while (!state.all_completions_done ||
 				!state.all_recvs_posted ||
 				!state.all_sends_posted) {
@@ -448,8 +475,8 @@ static int multi_run_test()
 			ret = method.wait();
 			if (ret)
 				return ret;
-		}
 
+		}
 		ret = send_recv_barrier(iter);
 		if (ret)
 			return ret;
@@ -486,10 +513,10 @@ int multinode_run_tests(int argc, char **argv)
 	ret = multi_setup_fabric(argc, argv);
 	if (ret)
 		return ret;
-
-
+	
+	printf("My rank: %i\n", pm_job.my_rank);
 	for (i = 0; i < NUM_TESTS && !ret; i++) {
-		printf("starting %s... ", patterns[i].name);
+		printf("starting %s... \n", patterns[i].name);
 		pattern = &patterns[i];
 		ret = multi_run_test();
 		if (ret)

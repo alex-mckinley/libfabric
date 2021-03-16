@@ -431,7 +431,8 @@ static int ft_alloc_ctx_array(struct ft_context **mr_array, char ***mr_bufs,
 				    (void **) &((*mr_bufs)[i]), mr_size);
 		if (ret)
 			return ret;
-
+		
+		printf("alloc array member %i: %p\n", i, (*mr_bufs)[i]);
 		context->buf = (*mr_bufs)[i];
 
 		ret = ft_reg_mr(context->buf, mr_size, access,
@@ -1519,16 +1520,18 @@ int ft_exchange_keys(struct fi_rma_iov *peer_iov)
 	return ret;
 }
 
-static void ft_cleanup_mr_array(struct ft_context *ctx_arr, char **mr_bufs)
+static void ft_cleanup_mr_array(struct ft_context *ctx_arr, char ***mr_bufs)
 {
 	int i, ret;
 
-	if (!mr_bufs)
+	if (!(*mr_bufs))
 		return;
 
 	for (i = 0; i < opts.window_size; i++) {
+		
+		printf("freeing arr %i: %p\n", i, (*mr_bufs)[i]);
 		FT_CLOSE_FID(ctx_arr[i].mr);
-		ret = ft_hmem_free(opts.iface, mr_bufs[i]);
+		ret = ft_hmem_free(opts.iface, (*mr_bufs)[i]);
 		if (ret)
 			FT_PRINTERR("ft_hmem_free", ret);
 	}
@@ -1562,8 +1565,8 @@ void ft_free_res(void)
 {
 	int ret;
 
-	ft_cleanup_mr_array(tx_ctx_arr, tx_mr_bufs);
-	ft_cleanup_mr_array(rx_ctx_arr, rx_mr_bufs);
+	ft_cleanup_mr_array(tx_ctx_arr, &tx_mr_bufs);
+	ft_cleanup_mr_array(rx_ctx_arr, &rx_mr_bufs);
 
 	free(tx_ctx_arr);
 	free(rx_ctx_arr);
@@ -2142,10 +2145,10 @@ ft_tag_is_valid(struct fid_cq * cq, struct fi_cq_err_entry *comp, uint64_t tag)
 			valid = (comp->tag == tag);
 		}
 
-		if (!valid) {
-			FT_ERR("Tag mismatch!. Expected: %"PRIu64", actual: %"
-				PRIu64, tag, comp->tag);
-		}
+		//if (!valid) {
+	//		FT_ERR("Tag mismatch!. Expected: %"PRIu64", actual: %"
+	//			PRIu64, tag, comp->tag);
+	//	}
 	}
 
 	return valid;
@@ -3450,3 +3453,4 @@ void ft_free_string_array(char **s)
 	/* and then the actual array of pointers */
 	free(s);
 }
+

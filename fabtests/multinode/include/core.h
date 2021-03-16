@@ -75,6 +75,8 @@ struct multinode_xfer_state {
 	int 			iteration;
 	size_t			recvs_posted;
 	size_t			sends_posted;
+	size_t			start_sends;
+	size_t			start_recvs;
 
 	size_t			tx_window;
 	size_t			rx_window;
