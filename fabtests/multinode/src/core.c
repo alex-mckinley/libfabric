@@ -251,7 +251,7 @@ int multi_msg_recv()
 	return 0;
 }
 
-int multi_msg_send()
+int multi_msg_send(int iter)
 {
 	int ret;
 	fi_addr_t dest;
@@ -271,9 +271,9 @@ int multi_msg_send()
 
 //		tx_ctx_arr[offset].buf[0] = offset;
 		snprintf((char*) tx_ctx_arr[state.cur_target].buf, tx_size,
-	        "Hello World! from %zu to %i on the %zuth iteration, %s test",
+	        "Hello World! from %zu to %i on the %ith iteration, %s test",
 	        pm_job.my_rank, state.cur_target, 
-	        (size_t) tx_seq, pattern->name);
+	        iter, pattern->name);
 
 
 		dest = pm_job.fi_addrs[state.cur_target];
@@ -292,7 +292,7 @@ int multi_msg_send()
 	return 0;
 }
 
-int multi_msg_wait()
+int multi_msg_wait(int iter)
 {
 	int ret, i;
 
@@ -315,15 +315,38 @@ int multi_msg_wait()
 	if (state.all_recvs_posted && state.all_sends_posted)
 		state.all_completions_done = true;
 	
-	printf("\trecieved data: \n");
-	for (i = 0; i < pm_job.num_ranks; i++) {
-		printf("\t\t%i: %s\n", i, rx_ctx_arr[i].buf);
+	ret = multi_verify(iter);
+	if (ret)
+		return ret;
+	//printf("\trecieved data: \n");
+	//for (i = 0; i < pm_job.num_ranks; i++) {
+	//	printf("\t\t%i: %s\n", i, rx_ctx_arr[i].buf);
+	//}
+
+	return 0;
+}
+
+int multi_verify(int iter)
+{
+	int target = 0;
+	char valid_text[rx_size];
+	while (pattern->next_source(&target) != -FI_ENODATA) {
+	
+		snprintf(valid_text, rx_size, 
+				"Hello World! from %i to %zu on the %ith iteration, %s test",
+	        	target, pm_job.my_rank, iter, pattern->name);
+
+		if (strcmp(rx_ctx_arr[target].buf, valid_text) != 0) {
+			printf("Error: expected %s\n got %s\n", 
+					valid_text, rx_ctx_arr[target].buf);
+			return FI_EINVAL;
+		}
 	}
 
 	return 0;
 }
 
-int multi_rma_write()
+int multi_rma_write(int iter)
 {
 	int ret, rc;
 
@@ -338,9 +361,9 @@ int multi_rma_write()
 		}
 
 		snprintf((char*) tx_buf + tx_size * state.cur_target, tx_size,
-		        "Hello World! from %zu to %i on the %zuth iteration, %s test",
+		        "Hello World! from %zu to %i on the %ith iteration, %s test",
 		        pm_job.my_rank, state.cur_target,
-		        (size_t) tx_seq, pattern->name);
+		        iter, pattern->name);
 
 		while (1) {
 			ret = fi_write(ep,
@@ -378,7 +401,7 @@ int multi_rma_recv()
 	return 0;
 }
 
-int multi_rma_wait()
+int multi_rma_wait(int iter)
 {
 	int ret, i;
 
@@ -468,11 +491,11 @@ static int multi_run_test()
 			if (ret)
 				return ret;
 
-			ret = method.send();
+			ret = method.send(iter);
 			if (ret)
 				return ret;
 
-			ret = method.wait();
+			ret = method.wait(iter);
 			if (ret)
 				return ret;
 
@@ -514,7 +537,7 @@ int multinode_run_tests(int argc, char **argv)
 	if (ret)
 		return ret;
 	
-	printf("My rank: %i\n", pm_job.my_rank);
+	printf("My rank: %zu\n", pm_job.my_rank);
 	for (i = 0; i < NUM_TESTS && !ret; i++) {
 		printf("starting %s... \n", patterns[i].name);
 		pattern = &patterns[i];

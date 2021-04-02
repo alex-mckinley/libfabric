@@ -432,7 +432,7 @@ static int ft_alloc_ctx_array(struct ft_context **mr_array, char ***mr_bufs,
 		if (ret)
 			return ret;
 		
-		printf("alloc array member %i: %p\n", i, (*mr_bufs)[i]);
+		//printf("alloc array member %i: %p\n", i, (*mr_bufs)[i]);
 		context->buf = (*mr_bufs)[i];
 
 		ret = ft_reg_mr(context->buf, mr_size, access,
@@ -1529,7 +1529,7 @@ static void ft_cleanup_mr_array(struct ft_context *ctx_arr, char ***mr_bufs)
 
 	for (i = 0; i < opts.window_size; i++) {
 		
-		printf("freeing arr %i: %p\n", i, (*mr_bufs)[i]);
+		//printf("freeing arr %i: %p\n", i, (*mr_bufs)[i]);
 		FT_CLOSE_FID(ctx_arr[i].mr);
 		ret = ft_hmem_free(opts.iface, (*mr_bufs)[i]);
 		if (ret)
