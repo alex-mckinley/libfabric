@@ -72,7 +72,7 @@ struct pm_job_info {
 };
 
 struct multinode_xfer_state {
-	int 			iteration;
+	int 			iter;
 	size_t			recvs_posted;
 	size_t			sends_posted;
 
@@ -94,6 +94,8 @@ struct multinode_xfer_state {
 extern struct pm_job_info pm_job;
 int multinode_run_tests(int argc, char **argv);
 int pm_allgather(void *my_item, void *items, int item_size);
+ssize_t socket_send(int sock, void *buf, size_t len, int flags);
+int socket_recv(int sock, void *buf, size_t len, int flags);
 void pm_barrier();
 int multi_msg_send();
 int multi_msg_recv();
