@@ -482,10 +482,9 @@ int multinode_run_tests(int argc, char **argv)
 	if (ft_check_opts(FT_OPT_PERF))
 		timers = malloc(sizeof(*timers) * opts.iterations * pm_job.num_ranks);
 
-	for (i = 0; i < NUM_TESTS && !ret; i++) {
-		printf("starting %s... ", patterns[i].name);
-		pattern = &patterns[i];
-
+	if (pm_job.pattern != -1) {
+		printf("starting %s... ", patterns[pm_job.pattern].name);
+		pattern = &patterns[pm_job.pattern];
 		ret = multi_run_test();
 		if (ret) {
 			printf("failed\n");
@@ -495,17 +494,45 @@ int multinode_run_tests(int argc, char **argv)
 
 		if (ft_check_opts(FT_OPT_PERF)) {
 			ret = multi_timer_analyze(timers, opts.iterations * pm_job.num_ranks);
-			if (ret)
+			if (ret < 0)
 				goto out;
 			for (j = 0; j < opts.iterations * pm_job.num_ranks; j++)
 				free(timers[j]);
 		}
-
 		fflush(stdout);
+
+	} else {
+		for (i = 0; i < NUM_TESTS && !ret; i++) {
+			printf("starting %s... ", patterns[i].name);
+			pattern = &patterns[i];
+			ret = multi_run_test();
+			if (ret) {
+				printf("failed\n");
+				goto out;
+			}
+			printf("passed\n");
+
+			if (ft_check_opts(FT_OPT_PERF)) {
+				ret = multi_timer_analyze(timers, opts.iterations
+							* pm_job.num_ranks);
+				if (ret < 0)
+					goto out;
+				for (j = 0; j < opts.iterations * pm_job.num_ranks; j++)
+					free(timers[j]);
+			}
+			fflush(stdout);
+		}
 	}
+
+	pm_job_free_res();
+	ft_free_res();
+	return ft_exit_code(ret);
+
 out:
-	for (j = 0; j < opts.iterations * pm_job.num_ranks; j++)
-		free(timers[j]);
+	for (j = 0; j < opts.iterations * pm_job.num_ranks; j++) {
+		if (timers[j])
+			free(timers[j]);
+	}
 	pm_job_free_res();
 	ft_free_res();
 	return ft_exit_code(ret);

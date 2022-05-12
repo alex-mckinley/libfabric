@@ -147,7 +147,6 @@ int multi_timer_gather(struct multi_timer **all_timer,
 			}
 		}
 	} else {
-
 		for (i = 0; i < timer_count; i++) {
 			ret = socket_send(pm_job.sock, timers[i],
 					sizeof(*recv_timer), 0);
@@ -171,7 +170,9 @@ int multi_timer_iter_gather(struct multi_timer **gather_timers,
 
 	ret = multi_timer_gather(gather_timers, iter_timers, pm_job.num_ranks);
 	if (ret < 0)
-		printf("gather timer error\n");
+		printf("gather timer error: %i\n", ret);
+
+	pm_barrier();
 	
 	free(iter_timers);
 	return ret;
