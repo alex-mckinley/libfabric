@@ -106,7 +106,6 @@ pipeline {
         cleanup {
             withEnv(['PATH+EXTRA=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bin:$PYTHONPATH']) {
                 sh "rm -rf '${env.CI_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}/ci_middlewares'"
-                sh "rm -rf '${env.CI_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}/reg'"
                 sh "rm -rf '${env.CI_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}/dbg'"
                 sh "rm -rf '${env.CI_INSTALL_DIR}/${env.JOB_NAME}/${env.BUILD_NUMBER}/dl'"
             }
