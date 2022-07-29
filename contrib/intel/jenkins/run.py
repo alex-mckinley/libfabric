@@ -68,6 +68,25 @@ def shmemtest(core, hosts, mode, util):
         print(f"Skipping {core} {runshmemtest.testname} as execute condition fails")
     print('-------------------------------------------------------------------')
 
+def multinodetest(core, hosts, mode, util):
+
+    runmultinodetest = tests.MultinodeTests(jobname=jbname,buildno=bno,
+                                      testname="multinode performance test", 
+                                      core_prov=core, fabric=fab, hosts=hosts,
+                                      ofi_build_mode=mode, util_prov=util)
+
+    print("-------------------------------------------------------------------")
+    if (runmultinodetest.execute_condn):
+        print("Running multinode performance test for {}-{}-{}" \
+              .format(core, util, fab))
+        runmultinodetest.execute_cmd()
+
+        print("---------------------------------------------------------------")
+    else:
+        print("Skipping {} as execute condition fails" \
+              .format(runmultinodetest.testname))
+    print("-------------------------------------------------------------------")
+
 def ze_fabtests(core, hosts, mode, util):
     runzefabtests = tests.ZeFabtests(jobname=jbname,buildno=bno,
                                      testname="ze test", core_prov=core,
