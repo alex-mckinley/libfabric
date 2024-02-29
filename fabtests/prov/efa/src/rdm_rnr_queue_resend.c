@@ -80,19 +80,21 @@ int global_expected_rnr_error = 1;
 static int alloc_atomic_res(struct fi_info *fi, void **result, void **compare,
 			    struct fid_mr **mr_result, struct fid_mr **mr_compare)
 {
-	int ret;
+	int ret = 0;
 	int mr_local = !!(fi->domain_attr->mr_mode & FI_MR_LOCAL);
 
 	*result = malloc(buf_size);
 	if (!*result) {
 		perror("malloc");
-		return -1;
+		ret = -FI_ENOMEM;
+		goto err1;
 	}
 
 	*compare = malloc(buf_size);
 	if (!*compare) {
 		perror("malloc");
-		return -1;
+		ret = -FI_ENOMEM;
+		goto err2;
 	}
 
 	// registers local data buffer that stores results
@@ -101,7 +103,7 @@ static int alloc_atomic_res(struct fi_info *fi, void **result, void **compare,
 			0, 0, mr_result, NULL);
 	if (ret) {
 		FT_PRINTERR("fi_mr_reg", -ret);
-		return ret;
+		goto err3;
 	}
 
 	// registers local data buffer that contains comparison data
@@ -110,10 +112,15 @@ static int alloc_atomic_res(struct fi_info *fi, void **result, void **compare,
 			0, 0, mr_compare, NULL);
 	if (ret) {
 		FT_PRINTERR("fi_mr_reg", ret);
-		return ret;
+		goto err3;
 	}
 
-	return 0;
+err3:
+	free(*compare);
+err2:
+	free(*result);
+err1:
+	return ret;
 }
 
 static void free_atomic_res(void *result, void *compare,
