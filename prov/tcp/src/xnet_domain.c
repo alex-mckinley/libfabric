@@ -36,6 +36,27 @@
 #include "ofi_atomic.h"
 #include "xnet.h"
 
+static int xnet_get_submr_list(struct xnet_domain *domain, struct fid *mr_fid, 
+			       struct dlist_entry *submr_list)
+{	
+	int ret = 0;
+	struct ofi_rbnode *node = ofi_rbmap_find(&domain->submr_map, mr_fid);
+	if (node) {
+		submr_list = node->data;
+		return 0;
+	}
+
+	submr_list = calloc(1, sizeof(*submr_list));
+	if (!submr_list)
+		return -FI_ENOMEM;
+	dlist_init(submr_list);
+	ret = ofi_rbmap_insert(&domain->submr_map, mr_fid, submr_list, NULL);
+	if (ret) 
+		free(submr_list);
+	
+	return ret;
+}
+
 static int xnet_mr_close(struct fid *fid)
 {
 	struct xnet_domain *domain;
@@ -52,23 +73,23 @@ static int xnet_mr_close(struct fid *fid)
 	return ret;
 }
 
-static void xnet_subdomains_mr_close(struct xnet_domain *domain, uint64_t mr_key)
+static void xnet_subdomains_mr_close(struct xnet_domain *domain, struct fid *fid)
 {
 	int ret;
 	struct fid_list_entry *item;
-	struct xnet_domain *subdomain;
+	struct fid_mr *sub_mr;
+	struct dlist_entry submr_list;
 
 	assert(ofi_genlock_held(&domain->subdomain_list_lock));
+
+	ret = xnet_get_submr_list(domain, fid, &submr_list);
+	if (ret)
+		return;
+
 	dlist_foreach_container(&domain->subdomain_list,
 				struct fid_list_entry, item, entry) {
-		subdomain = container_of(item->fid, struct xnet_domain,
-					 util_domain.domain_fid.fid);
-		ofi_genlock_lock(&subdomain->util_domain.lock);
-		ret = ofi_mr_map_remove(&subdomain->util_domain.mr_map, mr_key);
-		ofi_genlock_unlock(&subdomain->util_domain.lock);
-
-		if (!ret)
-			ofi_atomic_dec32(&subdomain->util_domain.ref);
+		sub_mr = container_of(item->fid, struct fid_mr, fid);
+		(void) ofi_mr_close(&sub_mr->fid);
 	}
 }
 
@@ -82,7 +103,7 @@ static int xnet_mplex_mr_close(struct fid *fid)
 			      util_domain.domain_fid.fid);
 
 	ofi_genlock_lock(&domain->subdomain_list_lock);
-	xnet_subdomains_mr_close(domain, mr->key);
+	xnet_subdomains_mr_close(domain, fid);
 	ofi_genlock_unlock(&domain->subdomain_list_lock);
 	return ofi_mr_close(fid);
 }
@@ -179,6 +200,7 @@ xnet_mplex_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 	struct fid_list_entry *item;
 	struct fid_mr *sub_mr_fid;
 	struct ofi_mr *mr;
+	struct dlist_entry submr_list;
 	int ret;
 
 	domain = container_of(fid, struct xnet_domain,
@@ -190,16 +212,11 @@ xnet_mplex_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 	mr = container_of(*mr_fid, struct ofi_mr, mr_fid.fid);
 	mr->mr_fid.fid.ops = &xnet_mplex_mr_fi_ops;
 
-	/*
-	 * registering onto subdomains is only important for rma and
-	 * we rely on the fid being in the mr map for all close paths, which
-	 * will only be triggered on the rma case.
-	 * xnet does not require any special mr modes, so local access to
-	 * mr fids is not needed. If xnet is expanded to require local
-	 * registration (including FI_MR_HMEM), this must be changed. 
-	 */
-	if (!(attr->access & (FI_REMOTE_READ | FI_REMOTE_WRITE)))
-		return 0;
+	ret = xnet_get_submr_list(domain, &(*mr_fid)->fid, &submr_list);
+	if (ret) {
+		(void) ofi_mr_close(&(*mr_fid)->fid);
+		return ret;
+	}
 
 	ofi_genlock_lock(&domain->subdomain_list_lock);
 	dlist_foreach_container(&domain->subdomain_list,
@@ -210,11 +227,20 @@ xnet_mplex_mr_regattr(struct fid *fid, const struct fi_mr_attr *attr,
 				"Failed to reg mr (%ld) from subdomain (%p)\n",
 				mr->key, item->fid);
 
-			xnet_subdomains_mr_close(domain, mr->key);
-			(void) ofi_mr_close(&(*mr_fid)->fid);
+			break;
+		}
+		ret = fid_list_insert(&submr_list, NULL, &(sub_mr_fid->fid));
+		if (ret) {
+			ofi_mr_close(&(sub_mr_fid->fid));
 			break;
 		}
 	}
+
+	if (ret) {
+		xnet_subdomains_mr_close(domain, &(*mr_fid)->fid);
+		(void) ofi_mr_close(&(*mr_fid)->fid);
+	}
+
 	ofi_genlock_unlock(&domain->subdomain_list_lock);
 	return ret;
 }
@@ -361,6 +387,11 @@ int xnet_domain_multiplexed(struct fid_domain *domain_fid)
 	return domain_fid->ops == &xnet_mplex_domain_ops;
 }
 
+static int xnet_submr_compare(struct ofi_rbmap *map, void *key, void *data)
+{
+	return (uint64_t) key - (uint64_t) data;
+}
+
 static int xnet_domain_mplex_open(struct fid_fabric *fabric_fid, struct fi_info *info,
 				  struct fid_domain **domain_fid, void *context)
 {
@@ -394,6 +425,9 @@ static int xnet_domain_mplex_open(struct fid_fabric *fabric_fid, struct fi_info 
 	domain->util_domain.domain_fid.fid.ops = &xnet_mplex_domain_fi_ops;
 	domain->util_domain.domain_fid.mr = &xnet_mplex_domain_fi_ops_mr;
 	*domain_fid = &domain->util_domain.domain_fid;
+
+	domain->submr_map = ofi_rbmap_create(&xnet_submr_compare);
+
 	return FI_SUCCESS;
 
 free_lock:

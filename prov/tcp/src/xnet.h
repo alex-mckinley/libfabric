@@ -495,6 +495,7 @@ struct xnet_domain {
 	 struct fi_info		*subdomain_info;
 	 struct ofi_genlock	subdomain_list_lock;
 	 struct dlist_entry	subdomain_list;
+	 struct ofi_rbmap	*submr_map;
 };
 
 static inline struct xnet_progress *xnet_ep2_progress(struct xnet_ep *ep)
